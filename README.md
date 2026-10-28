@@ -9,6 +9,8 @@ I haven't had time to do more testing or reverse-engineer the Windows driver yet
 - Change polling rate to 500 or 1000 Hz.
 - Set static RGB colors and choose from 46 captured RGB presets.
 - Preview changes with `--dry-run`.
+- Desktop GUI with packet previews and explicit Apply buttons.
+- Preview a single button-slot replacement without writing to the mouse.
 
 # RM-MG-LP Linux Utility
 
@@ -27,6 +29,23 @@ python3 -m pip install .
 ```
 
 The commands below may need `sudo` if your user does not have permission to access the mouse.
+
+Real USB operations also require the system's libusb backend. The optional desktop
+GUI requires Tkinter (often packaged as `python3-tk` on Linux).
+
+## Desktop GUI
+
+After installing the project:
+
+```bash
+rm-mg-lp-gui
+```
+
+Or run directly from the checkout:
+
+```bash
+PYTHONPATH=src python3 -m rmmglp.gui
+```
 
 ## Commands
 
@@ -84,6 +103,16 @@ DPI and RGB use the full configuration transaction. Polling uses the verified CT
 
 Button action packets can be printed for inspection, but writing button assignments to the mouse has not been validated on Linux. Shortcuts and macros are not implemented.
 
+Preview button slot 5 mapped to right click while preserving all other slots:
+
+```bash
+rm-mg-lpctl packet button-edit 5 right
+```
+
+Slots are numbered 1–8. The base is captured EP3 #3, not a hardware read.
+Basic/DPI/polling action descriptors are captured; double/triple click and
+multimedia/browser/office/system labels rely on capture/UI correlation.
+
 ## Tested on the physical mouse
 
 - DPI: 200–16000 in 100-DPI steps.
@@ -97,6 +126,23 @@ The utility stores its configuration in:
 ```text
 ~/.config/rm-mg-lp/config.json
 ```
+
+The JSON object is validated before packet construction. DPI must be an integer
+in the supported range/step, polling must be 500 or 1000, and each RGB field must
+encode exactly eight bytes. State is saved atomically only after a successful USB
+operation. If saving fails after USB succeeds, the error reports that distinction.
+
+## Development checks
+
+```bash
+python3 -m pip install -e .
+python3 -m unittest discover -s tests -v
+```
+
+Tests use temporary configuration files and mocked USB transport. They do not
+require or validate a physical mouse. The CLI and GUI share `service.py` for
+validation, application, and save-after-success behavior. See
+[`protocol/STATUS.md`](protocol/STATUS.md) for unresolved capture/code differences.
 
 ## Contact
 

@@ -76,9 +76,18 @@ poll cycle -> 05 00 03 00
 poll +     -> 05 00 01 00
 poll -     -> 05 00 02 00
 
+```
+
+Strong capture/UI correlation, without physical Linux validation:
+
+```text
 double click -> 0A F0 32 02
 triple click -> 0A F0 32 03
 ```
+
+Multimedia, browser, office, and system action labels also rely on capture/UI
+ordering. The offline single-slot editor preserves all other bytes, including
+unknown descriptors; it does not write button assignments.
 
 Linux button-write validation is still pending.
 
