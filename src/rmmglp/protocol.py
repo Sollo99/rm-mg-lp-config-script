@@ -193,7 +193,7 @@ SYSTEM_ACTIONS = {
 }
 
 def validate_dpi(dpi: int) -> None:
-    if dpi < 200 or dpi > 16000 or dpi % 100:
+    if type(dpi) is not int or dpi < 200 or dpi > 16000 or dpi % 100:
         raise ValueError("DPI must be 200-16000 in 100-DPI steps.")
 
 
@@ -241,3 +241,29 @@ def button_report(action_names: list[str]) -> bytes:
         return b"".join(actions[name] for name in action_names)
     except KeyError as exc:
         raise ValueError(f"Unknown action: {exc.args[0]}") from exc
+
+
+def replace_button(report: bytes, slot: int, action: str) -> bytes:
+    """Build a preview only; slots are numbered 1–8. Preserve unknown entries."""
+    if len(report) != 32:
+        raise ValueError("Button report must be exactly 32 bytes.")
+    if type(slot) is not int or not 1 <= slot <= 8:
+        raise ValueError("Button slot must be between 1 and 8.")
+    try:
+        descriptor = all_actions()[action]
+    except KeyError as exc:
+        raise ValueError(f"Unknown action: {action}") from exc
+    offset = (slot - 1) * 4
+    return bytes(report[:offset]) + descriptor + bytes(report[offset + 4:])
+
+
+def format_transaction(ctrls, reports) -> str:
+    lines = []
+    for kind, index, offset in EVENTS:
+        if kind == "get":
+            label, data = "GET_FEATURE", "read 8 bytes (response unknown)"
+        else:
+            label = f"CTRL{index}" if kind == "ctrl" else f"EP3-{index}"
+            data = (ctrls if kind == "ctrl" else reports)[index].hex(" ")
+        lines.append(f"{offset:.6f}s {label:12} {data}")
+    return "\n".join(lines)

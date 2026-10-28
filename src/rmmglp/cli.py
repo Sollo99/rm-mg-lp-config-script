@@ -4,18 +4,17 @@ import argparse
 import json
 
 from .protocol import (
-    BUTTON_ACTIONS,
-    MULTIMEDIA_ACTIONS,
-    OFFICE_ACTIONS,
     RGB_CAPTURED,
     RGB_NAMED,
-    SYSTEM_ACTIONS,
-    WINDOWS_ACTIONS,
+    EP3,
+    replace_button,
     all_actions,
     button_report,
 )
-from .state import load_state, save_state
-from .usb import apply_full_state, find_device, set_polling_direct
+from .state import load_state
+from . import service
+from usb.core import USBError
+from .usb import find_device
 
 
 def fmt(data: bytes) -> str:
@@ -40,56 +39,19 @@ def cmd_info():
 
 
 def cmd_dpi(value: str, dry_run: bool):
-    try:
-        dpi = int(value)
-    except ValueError:
-        die("DPI must be an integer.")
-    state = load_state()
-    state["dpi"] = dpi
-    apply_full_state(state, dry_run)
-    if not dry_run:
-        save_state(state)
+    service.set_dpi(int(value), dry_run)
 
 
 def cmd_polling(value: str, dry_run: bool):
-    try:
-        rate = int(value)
-    except ValueError:
-        die("Polling rate must be an integer.")
-    state = load_state()
-    try:
-        set_polling_direct(rate, dry_run)
-    except ValueError as exc:
-        die(str(exc))
-    if not dry_run:
-        state["polling"] = rate
-        save_state(state)
+    service.set_polling(int(value), dry_run)
 
 
 def cmd_rgb_named(name: str, dry_run: bool):
-    state = load_state()
-    ctrl5, ctrl6 = RGB_NAMED[name]
-    state["rgb_ctrl5"] = ctrl5.hex()
-    state["rgb_ctrl6"] = ctrl6.hex()
-    apply_full_state(state, dry_run)
-    if not dry_run:
-        save_state(state)
+    service.set_rgb_named(name, dry_run)
 
 
 def cmd_rgb_capture(number: str, dry_run: bool):
-    try:
-        number_i = int(number)
-    except ValueError:
-        die("Capture ID must be an integer.")
-    if number_i not in RGB_CAPTURED:
-        die("Capture ID must be between 1 and 46.")
-    state = load_state()
-    ctrl5, ctrl6 = RGB_CAPTURED[number_i]
-    state["rgb_ctrl5"] = ctrl5.hex()
-    state["rgb_ctrl6"] = ctrl6.hex()
-    apply_full_state(state, dry_run)
-    if not dry_run:
-        save_state(state)
+    service.set_rgb_capture(int(number), dry_run)
 
 
 def cmd_list_rgb():
@@ -135,6 +97,12 @@ def build_parser():
     pbutton = packet_sub.add_parser("button")
     pbutton.add_argument("actions", nargs=8, choices=sorted(all_actions()))
     pbutton.set_defaults(func=lambda a: print(fmt(button_report(a.actions))))
+    edit = packet_sub.add_parser("button-edit", help="Preview one slot; never sends USB writes")
+    edit.add_argument("slot", type=int, choices=range(1, 9))
+    edit.add_argument("action", choices=sorted(all_actions()))
+    edit.add_argument("--report", help="32-byte base report in hex; defaults to captured EP3 #3")
+    edit.set_defaults(func=lambda a: print(fmt(replace_button(
+        bytes.fromhex(a.report) if a.report else EP3[3], a.slot, a.action))))
     prgb = packet_sub.add_parser("rgb")
     prgb.add_argument("preset", choices=sorted(RGB_NAMED))
     prgb.set_defaults(func=lambda a: (print("CTRL5", fmt(RGB_NAMED[a.preset][0])), print("CTRL6", fmt(RGB_NAMED[a.preset][1]))))
@@ -144,7 +112,10 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except (ValueError, RuntimeError, OSError, USBError) as exc:
+        die(f"Error: {exc}")
 
 
 if __name__ == "__main__":
