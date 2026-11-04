@@ -1,12 +1,49 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
+import tempfile
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from .protocol import RGB_NAMED, POLLING_PACKETS, validate_dpi, validate_rgb
 
 STATE_FILE = Path.home() / ".config" / "rm-mg-lp" / "config.json"
+_thread_lock = threading.Lock()
+_BUSY_MESSAGE = "Another configuration operation is in progress. Retry after it finishes."
+
+
+@contextmanager
+def configuration_lock():
+    """Protect a complete load/write/save operation across threads and processes."""
+    if not _thread_lock.acquire(blocking=False):
+        raise RuntimeError(_BUSY_MESSAGE)
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # Keep this file: unlinking it could let callers lock different inodes.
+        fd = os.open(STATE_FILE.with_suffix(".lock"), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                    raise RuntimeError(_BUSY_MESSAGE) from exc
+                raise
+            yield
+        finally:
+            # Closing releases the OS lock, including when an operation fails.
+            os.close(fd)
+    finally:
+        _thread_lock.release()
 
 
 def default_state() -> dict:
@@ -51,8 +88,16 @@ def validate_state(state: dict, partial: bool = False) -> None:
 def save_state(state: dict) -> None:
     validate_state(state)
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STATE_FILE.with_suffix(".tmp")
-    with tmp.open("w") as f:
-        json.dump(state, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, STATE_FILE)
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=STATE_FILE.parent,
+            prefix=f".{STATE_FILE.name}.", suffix=".tmp", delete=False,
+        ) as f:
+            tmp = Path(f.name)
+            json.dump(state, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, STATE_FILE)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)

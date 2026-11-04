@@ -1,27 +1,31 @@
 """Shared application operations for CLI and GUI. No hardware readback implied."""
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from .protocol import RGB_CAPTURED, RGB_NAMED
-from .state import load_state, save_state, validate_state
+from .state import configuration_lock, load_state, save_state, validate_state
 from .usb import apply_full_state, set_polling_direct
 
 
 def _apply(changes: dict, dry_run: bool, emit, polling_only=False):
-    state = load_state()
-    state.update(changes)
-    validate_state(state)
-    if polling_only:
-        set_polling_direct(state["polling"], dry_run, emit=emit)
-    else:
-        apply_full_state(state, dry_run, emit=emit)
-    if not dry_run:
-        try:
-            save_state(state)
-        except OSError as exc:
-            raise RuntimeError(
-                "USB write succeeded, but saving the local configuration failed: " + str(exc)
-            ) from exc
-    return state
+    lock = nullcontext() if dry_run else configuration_lock()
+    with lock:
+        state = load_state()
+        state.update(changes)
+        validate_state(state)
+        if polling_only:
+            set_polling_direct(state["polling"], dry_run, emit=emit)
+        else:
+            apply_full_state(state, dry_run, emit=emit)
+        if not dry_run:
+            try:
+                save_state(state)
+            except OSError as exc:
+                raise RuntimeError(
+                    "USB write succeeded, but saving the local configuration failed: " + str(exc)
+                ) from exc
+        return state
 
 
 def set_dpi(value: int, dry_run=False, emit=print):
