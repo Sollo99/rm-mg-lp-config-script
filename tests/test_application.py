@@ -60,11 +60,93 @@ class ApplicationTests(unittest.TestCase):
         service.set_dpi(1600, dry_run=True, emit=lambda _: None)
         self.assertEqual(self.path.read_bytes(), before)
 
+    def test_dry_runs_do_not_create_configuration_directory(self):
+        with patch.object(state, "STATE_FILE", self.path.parent / "missing" / "config.json"):
+            for operation, argument in ((service.set_dpi, 1600), (service.set_polling, 500),
+                                        (service.set_rgb_named, "red"), (service.set_rgb_capture, 46)):
+                operation(argument, dry_run=True, emit=lambda _: None)
+            self.assertFalse(state.STATE_FILE.parent.exists())
+
+    def test_dry_runs_work_while_another_operation_holds_lock(self):
+        with state.configuration_lock(), patch.object(usb, "open_vendor_interface") as opened:
+            service.set_dpi(1600, dry_run=True, emit=lambda _: None)
+            service.set_polling(500, dry_run=True, emit=lambda _: None)
+            opened.assert_not_called()
+        self.assertFalse(self.path.exists())
+
+    def test_busy_operation_does_not_read_write_or_save(self):
+        with state.configuration_lock(), patch.object(service, "load_state") as loaded, \
+                patch.object(service, "apply_full_state") as full, \
+                patch.object(service, "set_polling_direct") as polling, \
+                patch.object(service, "save_state") as saved:
+            for operation, value in ((service.set_dpi, 1600), (service.set_polling, 500)):
+                with self.assertRaisesRegex(RuntimeError, "Another configuration operation"):
+                    operation(value)
+            loaded.assert_not_called()
+            full.assert_not_called()
+            polling.assert_not_called()
+            saved.assert_not_called()
+
+    def test_lock_covers_loading_usb_and_saving(self):
+        calls = []
+
+        def phase(name):
+            def operation(*args, **kwargs):
+                calls.append(name)
+                with self.assertRaisesRegex(RuntimeError, "Another configuration operation"):
+                    with state.configuration_lock():
+                        self.fail("Transaction lock was released too soon")
+                return state.default_state()
+            return operation
+
+        with patch.object(service, "load_state", side_effect=phase("load")), \
+                patch.object(service, "apply_full_state", side_effect=phase("usb")), \
+                patch.object(service, "save_state", side_effect=phase("save")):
+            service.set_dpi(1600)
+        self.assertEqual(calls, ["load", "usb", "save"])
+        with state.configuration_lock():
+            pass
+
     def test_failed_usb_does_not_save(self):
         with patch.object(service, "apply_full_state", side_effect=RuntimeError("USB failure")), patch.object(service, "save_state") as saved:
             with self.assertRaisesRegex(RuntimeError, "USB failure"):
                 service.set_dpi(1600)
             saved.assert_not_called()
+        with state.configuration_lock():
+            pass
+
+    def test_save_failure_after_usb_is_distinct_and_releases_lock(self):
+        state.save_state(state.default_state())
+        before = self.path.read_bytes()
+        with patch.object(service, "apply_full_state") as applied, \
+                patch.object(service, "save_state", side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(RuntimeError, "USB write succeeded.*disk full"):
+                service.set_dpi(1600)
+            applied.assert_called_once()
+        self.assertEqual(self.path.read_bytes(), before)
+        with state.configuration_lock():
+            pass
+
+    def test_cli_full_profile_previews_explain_button_side_effects(self):
+        for command in (("dpi", "1600"), ("rgb", "named", "red"), ("rgb", "capture", "2")):
+            with self.subTest(command=command), contextlib.redirect_stdout(io.StringIO()) as output:
+                args = cli.build_parser().parse_args(["--dry-run", *command])
+                args.func(args)
+            self.assertIn("captured button defaults", output.getvalue())
+            self.assertIn("may overwrite existing button mappings", output.getvalue())
+
+    def test_cli_help_explains_full_profile_for_dpi_and_rgb(self):
+        for command in ("dpi", "rgb"):
+            with self.subTest(command=command), contextlib.redirect_stdout(io.StringIO()) as output:
+                with self.assertRaises(SystemExit) as exited:
+                    cli.build_parser().parse_args([command, "--help"])
+            self.assertEqual(exited.exception.code, 0)
+            self.assertIn("may overwrite existing button mappings", " ".join(output.getvalue().split()))
+
+    def test_polling_preview_does_not_report_full_profile_side_effects(self):
+        lines = []
+        service.set_polling(500, dry_run=True, emit=lines.append)
+        self.assertNotIn(usb.FULL_PROFILE_NOTICE, lines)
 
     def test_direct_polling_and_save_order(self):
         calls = []
@@ -115,6 +197,13 @@ class ApplicationTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_full_profile_notice_precedes_usb_access(self):
+        lines = []
+        with patch.object(usb, "open_vendor_interface", side_effect=RuntimeError("not connected")):
+            with self.assertRaisesRegex(RuntimeError, "not connected"):
+                usb.apply_full_state(state.default_state(), emit=lines.append)
+        self.assertIn(usb.FULL_PROFILE_NOTICE, lines)
+
     def test_claim_failure_restores_driver(self):
         dev = Mock()
         dev.is_kernel_driver_active.return_value = True

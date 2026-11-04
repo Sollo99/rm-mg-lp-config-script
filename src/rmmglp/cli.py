@@ -14,7 +14,7 @@ from .protocol import (
 from .state import load_state
 from . import service
 from usb.core import USBError
-from .usb import find_device
+from .usb import FULL_PROFILE_NOTICE, find_device
 
 
 def fmt(data: bytes) -> str:
@@ -75,7 +75,7 @@ def build_parser():
         subp = sub.add_parser(name)
         subp.set_defaults(func=fn)
 
-    dpi = sub.add_parser("dpi")
+    dpi = sub.add_parser("dpi", help="Set DPI using the full configuration", description=FULL_PROFILE_NOTICE)
     dpi.add_argument("value")
     dpi.set_defaults(func=lambda a: cmd_dpi(a.value, a.dry_run))
 
@@ -83,7 +83,7 @@ def build_parser():
     poll.add_argument("value")
     poll.set_defaults(func=lambda a: cmd_polling(a.value, a.dry_run))
 
-    rgb = sub.add_parser("rgb")
+    rgb = sub.add_parser("rgb", help="Set RGB using the full configuration", description=FULL_PROFILE_NOTICE)
     rgb_sub = rgb.add_subparsers(dest="rgb_command", required=True)
     named = rgb_sub.add_parser("named")
     named.add_argument("name", choices=sorted(RGB_NAMED))

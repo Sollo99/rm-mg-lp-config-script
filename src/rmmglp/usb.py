@@ -8,6 +8,11 @@ import usb.util
 from .protocol import EP_OUT, EVENTS, IFACE, PID, POLLING_PACKETS, VID, build_full_packets, format_transaction
 from .state import validate_state
 
+FULL_PROFILE_NOTICE = (
+    "Full configuration: DPI, polling, RGB, and captured button defaults. "
+    "Applying it may overwrite existing button mappings."
+)
+
 
 def find_device():
     dev = usb.core.find(idVendor=VID, idProduct=PID)
@@ -53,6 +58,7 @@ def apply_full_state(state: dict, dry_run: bool = False, emit=print):
         int(state["dpi"]), int(state["polling"]), ctrl5, ctrl6
     )
 
+    emit(FULL_PROFILE_NOTICE)
     emit(f"DPI: {state['dpi']}")
     emit(f"Polling: {state['polling']} Hz")
     emit(f"RGB CTRL5: {state['rgb_ctrl5']}")

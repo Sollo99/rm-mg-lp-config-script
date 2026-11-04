@@ -49,6 +49,12 @@ PYTHONPATH=src python3 -m rmmglp.gui
 
 ## Commands
 
+DPI and RGB commands resend the full managed profile: saved DPI, polling, RGB,
+and captured button defaults. **Applying either may overwrite custom button
+mappings and settings changed outside this utility.** The CLI prints this notice
+before USB access; `--dry-run` shows the same transaction without applying it.
+Polling changes use a separate packet and do not resend that profile.
+
 Show the configuration managed by the utility (saved locally; it is not read back from the mouse):
 
 ```bash
@@ -131,6 +137,14 @@ The JSON object is validated before packet construction. DPI must be an integer
 in the supported range/step, polling must be 500 or 1000, and each RGB field must
 encode exactly eight bytes. State is saved atomically only after a successful USB
 operation. If saving fails after USB succeeds, the error reports that distinction.
+
+Real configuration operations sharing this configuration directory hold an
+exclusive `config.lock` from state loading through USB access and saving. A
+competing CLI or GUI operation exits with a busy message; retry after the first
+operation finishes. The OS releases the lock when the process exits, including
+after a crash. The lock file stays in place and does not need to be deleted.
+Dry runs do not acquire a lock or create configuration files or directories.
+Atomic saves use unique temporary files and remove them if saving fails.
 
 ## Development checks
 

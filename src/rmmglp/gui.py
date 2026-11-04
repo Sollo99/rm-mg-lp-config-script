@@ -11,6 +11,7 @@ from tkinter.scrolledtext import ScrolledText
 from . import service
 from .protocol import EP3, RGB_CAPTURED, RGB_NAMED, all_actions, replace_button
 from .state import load_state
+from .usb import FULL_PROFILE_NOTICE
 
 
 class Application:
@@ -24,7 +25,7 @@ class Application:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="RM-MG-LP", font=("TkDefaultFont", 20, "bold")).pack(anchor="w")
         ttk.Label(frame, text="Values below come from the utility's saved configuration, not live hardware.").pack(anchor="w", pady=6)
-        ttk.Label(frame, text="DPI/RGB Apply resends the managed profile and captured button defaults.").pack(anchor="w")
+        ttk.Label(frame, text="DPI/RGB Apply - " + FULL_PROFILE_NOTICE, wraplength=850).pack(anchor="w")
         self.status = tk.StringVar(value="Ready - preview performs no USB access.")
         self.saved = tk.StringVar()
         ttk.Label(frame, textvariable=self.saved, wraplength=850).pack(anchor="w", pady=6)
@@ -57,7 +58,7 @@ class Application:
         button = ttk.Button(row, text="Preview slot", command=self.preview_button)
         button.pack(side="left")
         self.buttons.append(button)
-        ttk.Label(frame, text="RGB: green physically verified; red/blue captured. Effect names remain unverified.").pack(anchor="w")
+        ttk.Label(frame, text="RGB: red, green, and blue physically verified. Effect names remain unverified.").pack(anchor="w")
         ttk.Label(frame, textvariable=self.status).pack(anchor="w", pady=8)
         self.output = ScrolledText(frame, wrap="none", height=20, font=("TkFixedFont", 10))
         self.output.pack(fill="both", expand=True)
